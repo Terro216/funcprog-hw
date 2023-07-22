@@ -14,38 +14,54 @@
  * Иногда промисы от API будут приходить в состояние rejected, (прямо как и API в реальной жизни)
  * Ответ будет приходить в поле {result}
  */
- import Api from '../tools/api';
+import Api from '../tools/api'
+import * as R from 'ramda'
 
- const api = new Api();
+const api = new Api()
 
- /**
-  * Я – пример, удали меня
-  */
- const wait = time => new Promise(resolve => {
-     setTimeout(resolve, time);
- })
+const processSequence = async ({ value, writeLog, handleSuccess, handleError }) => {
+  writeLog(value)
 
- const processSequence = ({value, writeLog, handleSuccess, handleError}) => {
-     /**
-      * Я – пример, удали меня
-      */
-     writeLog(value);
+  const isLongerThan2 = R.compose(R.gt(R.__, 2), R.length)
+  const isShorterThan10 = R.compose(R.lt(R.__, 10), R.length)
+  const isPositive = R.compose(R.gt(R.__, 0), parseInt) // or gte?
+  const isContainNumbersAndDots = R.test(/[0-9]+\.?[0-9]+/)
 
-     api.get('https://api.tech/numbers/base', {from: 2, to: 10, number: '01011010101'}).then(({result}) => {
-         writeLog(result);
-     });
+  const validValue = R.allPass([isLongerThan2, isShorterThan10, isPositive, isContainNumbersAndDots])(value)
 
-     wait(2500).then(() => {
-         writeLog('SecondLog')
+  if (!validValue) {
+    handleError('ValidationError')
+    return
+  }
 
-         return wait(1500);
-     }).then(() => {
-         writeLog('ThirdLog');
+  const number = R.compose(Math.round, parseFloat)(value)
+  writeLog(number)
 
-         return wait(400);
-     }).then(() => {
-         handleSuccess('Done');
-     });
- }
+  const translate = await api.get('https://api.tech/numbers/base', { from: 10, to: 2, number: value })
+  const translateRes = translate.result
+  writeLog(translateRes)
+  if (translateRes === 'rejected') {
+    //handleError ?
+    return
+  }
+  const getId = R.compose(
+    R.tap(writeLog),
+    R.modulo(R.__, 3),
+    R.tap(writeLog),
+    R.curry(Math.pow)(R.__, 2),
+    R.tap(writeLog),
+    R.length
+  )
+  const id = getId(translateRes)
+  const animal = await api.get(`https://animals.tech/${id}`)
+  const animalRes = animal.result
 
-export default processSequence;
+  if (animalRes === 'rejected') {
+    //handleError ?
+    return
+  }
+  console.log(animal)
+  handleSuccess(animalRes)
+}
+
+export default processSequence
