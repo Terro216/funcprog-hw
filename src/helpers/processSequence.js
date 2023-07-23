@@ -19,17 +19,23 @@ import * as R from 'ramda'
 
 const api = new Api()
 
-const processSequence = async ({ value, writeLog, handleSuccess, handleError }) => {
-  // Проверки
-  const isLongerThan2 = R.compose(R.gt(R.__, 2), R.length)
-  const isShorterThan10 = R.compose(R.lt(R.__, 10), R.length)
-  const isPositive = R.compose(R.gt(R.__, 0), Number) // or gte?
-  const isContainNumbersAndDots = R.test(/[0-9]+\.?[0-9]+/)
+// внешние вспомогательные функции
+const getResultField = R.prop('result')
+const tapLog = (logFunc) => R.tap(logFunc)
 
-  // просто вспомогательные функции
-  const tapWriteLog = R.tap(writeLog)
+// Проверки
+const isLongerThan2 = R.compose(R.gt(R.__, 2), R.length)
+const isShorterThan10 = R.compose(R.lt(R.__, 10), R.length)
+const isNumber = R.compose(R.not, Number.isNaN, parseFloat)
+const isPositive = R.compose(R.gt(R.__, 0), parseFloat)
+const isPositiveNumber = R.allPass([isPositive, isNumber]) // or gte?
+const isContainNumbersAndDots = R.test(/[0-9]+\.?[0-9]+/)
+
+const processSequence = ({ value, writeLog, handleSuccess, handleError }) => {
+  // внутренние вспомогательные функции
+  const tapWriteLog = tapLog(writeLog)
   const handleValidationError = () => handleError('ValidationError')
-  const parseAndRound = R.compose(tapWriteLog, Math.round, parseFloat, tapWriteLog) //step 3
+  const parseAndRound = R.compose(tapWriteLog, Math.round, parseFloat) //step 3
 
   // Функции для работы с апи
   const convertNumberFromTo = (from, to, number) =>
@@ -37,9 +43,12 @@ const processSequence = async ({ value, writeLog, handleSuccess, handleError }) 
   const convertNumberFrom10To2 = (number) => convertNumberFromTo(10, 2, number)
   const getAnimalById = (id) => api.get(`https://animals.tech/${id}`, {})
 
+  const handleRandomAnimal = R.compose(handleSuccess, getResultField)
+
   const getRandomAnimal = R.compose(
     //step 8
-    R.andThen(R.compose(handleSuccess, R.prop('result'))),
+    R.otherwise(handleError),
+    R.andThen(handleRandomAnimal),
     getAnimalById
   )
 
@@ -52,22 +61,27 @@ const processSequence = async ({ value, writeLog, handleSuccess, handleError }) 
     R.length //step 5
   )
 
+  const getIdAndRandomAnimal = R.compose(getRandomAnimal, getId)
+
+  const handleConvertedNumber = R.compose(
+    R.unless(R.equals('rejected'), getIdAndRandomAnimal),
+    tapWriteLog,
+    getResultField
+  )
+
   const convertNumber = R.compose(
     //step 4
-    R.andThen(
-      R.compose(
-        R.unless(R.equals('rejected'), R.compose(getRandomAnimal, getId)),
-        tapWriteLog,
-        R.prop('result')
-      )
-    ),
+    R.otherwise(handleError),
+    R.andThen(handleConvertedNumber),
     convertNumberFrom10To2
   )
 
+  const parseAndConvertNumber = R.compose(convertNumber, parseAndRound)
+
   const entrypoint = R.compose(
     R.ifElse(
-      R.allPass([isLongerThan2, isShorterThan10, isPositive, isContainNumbersAndDots]), //step 2
-      R.compose(convertNumber, parseAndRound),
+      R.allPass([isLongerThan2, isShorterThan10, isPositiveNumber, isContainNumbersAndDots]), //step 2
+      parseAndConvertNumber,
       handleValidationError
     ),
     tapWriteLog //step 1
