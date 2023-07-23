@@ -20,48 +20,60 @@ import * as R from 'ramda'
 const api = new Api()
 
 const processSequence = async ({ value, writeLog, handleSuccess, handleError }) => {
-  writeLog(value)
-
+  // Проверки
   const isLongerThan2 = R.compose(R.gt(R.__, 2), R.length)
   const isShorterThan10 = R.compose(R.lt(R.__, 10), R.length)
-  const isPositive = R.compose(R.gt(R.__, 0), parseInt) // or gte?
+  const isPositive = R.compose(R.gt(R.__, 0), Number) // or gte?
   const isContainNumbersAndDots = R.test(/[0-9]+\.?[0-9]+/)
 
-  const validValue = R.allPass([isLongerThan2, isShorterThan10, isPositive, isContainNumbersAndDots])(value)
+  // просто вспомогательные функции
+  const tapWriteLog = R.tap(writeLog)
+  const handleValidationError = () => handleError('ValidationError')
+  const parseAndRound = R.compose(tapWriteLog, Math.round, parseFloat, tapWriteLog) //step 3
 
-  if (!validValue) {
-    handleError('ValidationError')
-    return
-  }
+  // Функции для работы с апи
+  const convertNumberFromTo = (from, to, number) =>
+    api.get('https://api.tech/numbers/base', { from, to, number })
+  const convertNumberFrom10To2 = (number) => convertNumberFromTo(10, 2, number)
+  const getAnimalById = (id) => api.get(`https://animals.tech/${id}`, {})
 
-  const number = R.compose(Math.round, parseFloat)(value)
-  writeLog(number)
-
-  const translate = await api.get('https://api.tech/numbers/base', { from: 10, to: 2, number: value })
-  const translateRes = translate.result
-  writeLog(translateRes)
-  if (translateRes === 'rejected') {
-    //handleError ?
-    return
-  }
-  const getId = R.compose(
-    R.tap(writeLog),
-    R.modulo(R.__, 3),
-    R.tap(writeLog),
-    R.curry(Math.pow)(R.__, 2),
-    R.tap(writeLog),
-    R.length
+  const getRandomAnimal = R.compose(
+    //step 8
+    R.andThen(R.compose(handleSuccess, R.prop('result'))),
+    getAnimalById
   )
-  const id = getId(translateRes)
-  const animal = await api.get(`https://animals.tech/${id}`)
-  const animalRes = animal.result
 
-  if (animalRes === 'rejected') {
-    //handleError ?
-    return
-  }
-  console.log(animal)
-  handleSuccess(animalRes)
+  const getId = R.compose(
+    tapWriteLog,
+    R.modulo(R.__, 3), //step 7
+    tapWriteLog,
+    R.curry(Math.pow)(R.__, 2), //step 6
+    tapWriteLog,
+    R.length //step 5
+  )
+
+  const convertNumber = R.compose(
+    //step 4
+    R.andThen(
+      R.compose(
+        R.unless(R.equals('rejected'), R.compose(getRandomAnimal, getId)),
+        tapWriteLog,
+        R.prop('result')
+      )
+    ),
+    convertNumberFrom10To2
+  )
+
+  const entrypoint = R.compose(
+    R.ifElse(
+      R.allPass([isLongerThan2, isShorterThan10, isPositive, isContainNumbersAndDots]), //step 2
+      R.compose(convertNumber, parseAndRound),
+      handleValidationError
+    ),
+    tapWriteLog //step 1
+  )
+
+  entrypoint(value)
 }
 
 export default processSequence
